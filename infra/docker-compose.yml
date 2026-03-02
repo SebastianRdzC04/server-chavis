@@ -1,0 +1,50 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: chavis-mongo
+    restart: unless-stopped
+    ports:
+      - "1102:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=chavis
+    networks:
+      - chavis-net
+
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    container_name: chavis-server
+    restart: unless-stopped
+    ports:
+      - "1100:1100"
+    environment:
+      - PORT=1100
+      - MONGO_URI=mongodb://mongo:27017/chavis
+    depends_on:
+      - mongo
+    networks:
+      - chavis-net
+
+  front:
+    build:
+      context: ../front
+      dockerfile: Dockerfile
+    container_name: chavis-front
+    restart: unless-stopped
+    ports:
+      - "1101:1101"
+    depends_on:
+      - server
+    networks:
+      - chavis-net
+
+volumes:
+  mongo_data:
+    driver: local
+
+networks:
+  chavis-net:
+    driver: bridge
