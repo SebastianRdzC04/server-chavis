@@ -8,7 +8,7 @@ services:
     volumes:
       - mongo_data:/data/db
     environment:
-      - MONGO_INITDB_DATABASE=chavis
+      - MONGO_INITDB_DATABASE=${MONGO_INITDB_DATABASE:-chavis}
     networks:
       - chavis-net
 
@@ -21,8 +21,10 @@ services:
     ports:
       - "1100:1100"
     environment:
-      - PORT=1100
-      - MONGO_URI=mongodb://mongo:27017/chavis
+      - PORT=${PORT:-1100}
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/chavis}
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET:-chavis-access-secret-dev}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-chavis-refresh-secret-dev}
     depends_on:
       - mongo
     networks:
@@ -32,10 +34,12 @@ services:
     build:
       context: ../front
       dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:1100}
     container_name: chavis-front
     restart: unless-stopped
     ports:
-      - "1101:1101"
+      - "1101:80"
     depends_on:
       - server
     networks:

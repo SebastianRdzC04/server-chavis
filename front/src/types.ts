@@ -2,24 +2,14 @@ export interface SoundData {
   vrms: number;
   db_rel: number;
   db_spl: number;
-  timestamp: Date;
-  userId?: string;
-}
-
-export interface SoundDataRaw {
-  vrms: number;
-  db_rel: number;
-  db_spl: number;
+  dbSPL?: number | null;
+  timestamp: string;
 }
 
 export interface User {
-  _id: string;
+  id: string;
   email: string;
-  password: string;
   name?: string;
-  refreshTokens: Array<{ token: string; createdAt: Date }>;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 export interface Room {
@@ -27,8 +17,8 @@ export interface Room {
   userId: string;
   name: string;
   description?: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Calibration {
@@ -40,7 +30,7 @@ export interface Calibration {
   duration: number;
   stdDeviation: number;
   isValid: boolean;
-  calibratedAt: Date;
+  calibratedAt: string;
 }
 
 export interface Study {
@@ -52,16 +42,11 @@ export interface Study {
   notes?: string;
   peakVrms?: number;
   peakDbSPL?: number;
-  peakTimestamp?: Date;
+  peakTimestamp?: string;
   rt60Time?: number;
   endVrms?: number;
   endDbSPL?: number;
   status: "recording" | "completed" | "failed";
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface JWTPayload {
-  userId: string;
-  email: string;
+  createdAt: string;
+  updatedAt: string;
 }

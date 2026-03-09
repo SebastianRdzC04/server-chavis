@@ -8,6 +8,7 @@
   --bg: #0f1117;
   --bg-card: #1a1d27;
   --bg-card-hover: #222633;
+  --bg-hover: #272b38;
   --text: #e4e6eb;
   --text-muted: #8b8fa3;
   --accent-blue: #3b82f6;
@@ -15,6 +16,10 @@
   --accent-orange: #f59e0b;
   --accent-red: #ef4444;
   --border: #2a2d3a;
+  --error: #ef4444;
+  --error-bg: rgba(239, 68, 68, 0.1);
+  --success-bg: rgba(16, 185, 129, 0.1);
+  --warning-bg: rgba(245, 158, 11, 0.1);
 }
 
 body {

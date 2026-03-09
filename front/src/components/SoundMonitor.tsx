@@ -7,7 +7,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import type { SoundData } from "../App";
+import type { SoundData } from "../types";
 
 interface Props {
   current: SoundData | null;
@@ -59,11 +59,15 @@ function Card({
 }
 
 function SoundMonitor({ current, history }: Props) {
+  // Determinar si hay dB SPL calibrado disponible
+  const hasCalibration = current?.dbSPL !== undefined && current?.dbSPL !== null;
+  
   const chartData = history.map((d) => ({
     time: formatTime(d.timestamp),
     vrms: d.vrms,
     db_rel: d.db_rel,
     db_spl: d.db_spl,
+    dbSPL: d.dbSPL,
   }));
 
   const lastRecords = [...history].reverse().slice(0, 20);
@@ -85,10 +89,16 @@ function SoundMonitor({ current, history }: Props) {
           color="var(--accent-orange)"
         />
         <Card
-          label="dB SPL"
-          value={current ? current.db_spl.toFixed(1) : "---"}
+          label={hasCalibration ? "dB SPL (Calibrado)" : "dB SPL (Sin calibrar)"}
+          value={
+            current
+              ? hasCalibration
+                ? current.dbSPL!.toFixed(1)
+                : current.db_spl.toFixed(1)
+              : "---"
+          }
           unit="dB SPL"
-          color="var(--accent-green)"
+          color={hasCalibration ? "var(--accent-green)" : "var(--text-muted)"}
         />
       </div>
 
@@ -235,28 +245,31 @@ function SoundMonitor({ current, history }: Props) {
             </tr>
           </thead>
           <tbody>
-            {lastRecords.map((d, i) => (
-              <tr
-                key={i}
-                style={{
-                  borderBottom: "1px solid var(--border)",
-                  background: i === 0 ? "var(--bg-card-hover)" : "transparent",
-                }}
-              >
-                <td style={{ padding: "8px 12px", color: "var(--text-muted)" }}>
-                  {formatTime(d.timestamp)}
-                </td>
-                <td style={{ padding: "8px 12px", fontFamily: "monospace" }}>
-                  {d.vrms.toFixed(6)}
-                </td>
-                <td style={{ padding: "8px 12px", fontFamily: "monospace" }}>
-                  {d.db_rel.toFixed(1)}
-                </td>
-                <td style={{ padding: "8px 12px", fontFamily: "monospace" }}>
-                  {d.db_spl.toFixed(1)}
-                </td>
-              </tr>
-            ))}
+            {lastRecords.map((d, i) => {
+              const hasDbSPL = d.dbSPL !== undefined && d.dbSPL !== null;
+              return (
+                <tr
+                  key={i}
+                  style={{
+                    borderBottom: "1px solid var(--border)",
+                    background: i === 0 ? "var(--bg-card-hover)" : "transparent",
+                  }}
+                >
+                  <td style={{ padding: "8px 12px", color: "var(--text-muted)" }}>
+                    {formatTime(d.timestamp)}
+                  </td>
+                  <td style={{ padding: "8px 12px", fontFamily: "monospace" }}>
+                    {d.vrms.toFixed(6)}
+                  </td>
+                  <td style={{ padding: "8px 12px", fontFamily: "monospace" }}>
+                    {d.db_rel.toFixed(1)}
+                  </td>
+                  <td style={{ padding: "8px 12px", fontFamily: "monospace", color: hasDbSPL ? "var(--accent-green)" : "var(--text)" }}>
+                    {hasDbSPL ? d.dbSPL!.toFixed(1) : d.db_spl.toFixed(1)}
+                  </td>
+                </tr>
+              );
+            })}
             {lastRecords.length === 0 && (
               <tr>
                 <td
