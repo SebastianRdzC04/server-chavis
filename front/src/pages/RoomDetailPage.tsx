@@ -1,20 +1,28 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
-import { Room, Calibration, Study } from "../types";
+import { useParams, useNavigate } from "react-router-dom";
+import { Room, Study } from "../types";
 import { apiClient } from "../utils/api";
 import { useSocket } from "../context/SocketContext";
 import { useAuth } from "../context/AuthContext";
 import SoundMonitor from "../components/SoundMonitor";
-import CalibrationModal from "../components/CalibrationModal";
 import RT60StudyModal from "../components/RT60StudyModal";
 import type { SoundData } from "../types";
 
+interface SystemCalibration {
+  calibrated: boolean;
+  vrmsAt60dB?: number;
+  samplesCount?: number;
+  stdDeviation?: number;
+  calibratedAt?: string;
+}
+
 function RoomDetailPage() {
   const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
   const socket = useSocket();
   const { user } = useAuth();
   const [room, setRoom] = useState<Room | null>(null);
-  const [calibration, setCalibration] = useState<Calibration | null>(null);
+  const [systemCalibration, setSystemCalibration] = useState<SystemCalibration>({ calibrated: false });
   const [studies, setStudies] = useState<Study[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +33,6 @@ function RoomDetailPage() {
   const [editDescription, setEditDescription] = useState("");
 
   // Estado de modales
-  const [isCalibrationModalOpen, setIsCalibrationModalOpen] = useState(false);
   const [isRT60ModalOpen, setIsRT60ModalOpen] = useState(false);
 
   // Estado de monitor en vivo
@@ -57,7 +64,6 @@ function RoomDetailPage() {
       setCurrentData(data);
       setHistoryData((prev) => {
         const updated = [...prev, data];
-        // Mantener solo los últimos 100 registros
         if (updated.length > 100) {
           return updated.slice(-100);
         }
@@ -69,6 +75,24 @@ function RoomDetailPage() {
 
     return () => {
       socket.off("data:new", handleNewData);
+    };
+  }, [socket]);
+
+  // Escuchar actualizaciones de calibracion del sistema
+  useEffect(() => {
+    function handleCalibrationUpdated(data: { vrmsAt60dB: number; calibratedAt: string }) {
+      setSystemCalibration((prev) => ({
+        ...prev,
+        calibrated: true,
+        vrmsAt60dB: data.vrmsAt60dB,
+        calibratedAt: data.calibratedAt,
+      }));
+    }
+
+    socket.on("calibration:system-updated", handleCalibrationUpdated);
+
+    return () => {
+      socket.off("calibration:system-updated", handleCalibrationUpdated);
     };
   }, [socket]);
 
@@ -95,20 +119,13 @@ function RoomDetailPage() {
         setEditDescription(roomResponse.data.description || "");
       }
 
-      // Cargar calibración más reciente
-      const calibrationsResponse = await apiClient.request<Calibration[]>(
-        `/api/calibrations?roomId=${roomId}`,
-        { method: "GET" }
-      );
+      // Cargar calibracion global del sistema
+      const calResponse = await apiClient.request<SystemCalibration>("/api/system-calibration", {
+        method: "GET",
+      });
 
-      if (calibrationsResponse.data && calibrationsResponse.data.length > 0) {
-        // Tomar la más reciente
-        const sorted = calibrationsResponse.data.sort(
-          (a, b) =>
-            new Date(b.calibratedAt).getTime() -
-            new Date(a.calibratedAt).getTime()
-        );
-        setCalibration(sorted[0]);
+      if (calResponse.data) {
+        setSystemCalibration(calResponse.data);
       }
 
       // Cargar estudios
@@ -156,21 +173,11 @@ function RoomDetailPage() {
     setIsEditing(false);
   }
 
-  function handleStartCalibration() {
-    setIsCalibrationModalOpen(true);
-  }
-
   function handleStartRT60Study() {
     setIsRT60ModalOpen(true);
   }
 
-  function handleCalibrationComplete() {
-    // Recargar datos de la sala para obtener la nueva calibración
-    loadRoomData();
-  }
-
   function handleRT60Complete() {
-    // Recargar datos de la sala para obtener el nuevo estudio
     loadRoomData();
   }
 
@@ -351,85 +358,59 @@ function RoomDetailPage() {
         )}
       </div>
 
-      {/* Sección: Estado de Calibración */}
+      {/* Sección: Estado de Calibración del Sistema */}
       <div
         style={{
           background: "var(--bg-card)",
-          border: "1px solid var(--border)",
+          border: `1px solid ${systemCalibration.calibrated ? "var(--border)" : "var(--accent-orange)"}`,
           borderRadius: "12px",
-          padding: "24px",
+          padding: "20px 24px",
           marginBottom: "24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "16px",
         }}
       >
-        <div
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div
+            style={{
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              background: systemCalibration.calibrated ? "var(--accent-green)" : "var(--accent-orange)",
+              flexShrink: 0,
+            }}
+          />
+          <div>
+            <div style={{ fontSize: "14px", fontWeight: 500 }}>
+              {systemCalibration.calibrated
+                ? `Sistema calibrado — Vrms ref.: ${systemCalibration.vrmsAt60dB?.toFixed(6)} V`
+                : "Sistema sin calibrar"}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>
+              {systemCalibration.calibrated
+                ? `Calibrado el ${new Date(systemCalibration.calibratedAt!).toLocaleDateString("es-MX")}`
+                : "Los estudios RT60 requieren calibración del sistema"}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => navigate("/dashboard")}
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: "16px",
+            padding: "8px 16px",
+            background: "transparent",
+            color: systemCalibration.calibrated ? "var(--text-muted)" : "var(--accent-orange)",
+            border: `1px solid ${systemCalibration.calibrated ? "var(--border)" : "var(--accent-orange)"}`,
+            borderRadius: "8px",
+            fontSize: "13px",
+            fontWeight: 500,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
           }}
         >
-          <h3 style={{ fontSize: "18px", fontWeight: 600, margin: 0 }}>
-            Calibración de Sala
-          </h3>
-          <button
-            onClick={handleStartCalibration}
-            style={{
-              padding: "8px 16px",
-              background: "var(--accent-blue)",
-              color: "white",
-              border: "none",
-              borderRadius: "8px",
-              fontSize: "14px",
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
-          >
-            {calibration ? "Recalibrar" : "Calibrar"}
-          </button>
-        </div>
-
-        {calibration ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-            <div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Vrms a 60 dB SPL
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 600, marginTop: "4px" }}>
-                {calibration.vrmsAt60dB.toFixed(6)} V
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Desviación estándar
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 600, marginTop: "4px" }}>
-                {(calibration.stdDeviation * 100).toFixed(2)}%
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Muestras
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 600, marginTop: "4px" }}>
-                {calibration.samplesCount}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                Fecha
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: 600, marginTop: "4px" }}>
-                {new Date(calibration.calibratedAt).toLocaleDateString("es-MX")}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-            Esta sala aún no ha sido calibrada. Calibra la sala para poder realizar estudios de
-            reverberación.
-          </div>
-        )}
+          {systemCalibration.calibrated ? "Ver calibración" : "Calibrar sistema"}
+        </button>
       </div>
 
       {/* Sección: Estudios de Reverberación */}
@@ -455,16 +436,16 @@ function RoomDetailPage() {
           </h3>
           <button
             onClick={handleStartRT60Study}
-            disabled={!calibration}
+            disabled={!systemCalibration.calibrated}
             style={{
               padding: "8px 16px",
-              background: calibration ? "var(--accent-green)" : "var(--bg-hover)",
-              color: calibration ? "white" : "var(--text-muted)",
+              background: systemCalibration.calibrated ? "var(--accent-green)" : "var(--bg-hover)",
+              color: systemCalibration.calibrated ? "white" : "var(--text-muted)",
               border: "none",
               borderRadius: "8px",
               fontSize: "14px",
               fontWeight: 500,
-              cursor: calibration ? "pointer" : "not-allowed",
+              cursor: systemCalibration.calibrated ? "pointer" : "not-allowed",
             }}
           >
             Nuevo Estudio
@@ -539,9 +520,9 @@ function RoomDetailPage() {
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
-            {calibration
+            {systemCalibration.calibrated
               ? "No hay estudios de reverberación. Crea uno nuevo para comenzar."
-              : "Calibra la sala primero para poder crear estudios de reverberación."}
+              : "Calibra el sistema primero para poder crear estudios de reverberación."}
           </div>
         )}
       </div>
@@ -563,25 +544,14 @@ function RoomDetailPage() {
 
       {/* Modales */}
       {roomId && room && (
-        <>
-          <CalibrationModal
-            isOpen={isCalibrationModalOpen}
-            roomId={roomId}
-            roomName={room.name}
-            onClose={() => setIsCalibrationModalOpen(false)}
-            onComplete={handleCalibrationComplete}
-          />
-          {calibration && (
-            <RT60StudyModal
-              isOpen={isRT60ModalOpen}
-              roomId={roomId}
-              roomName={room.name}
-              calibrationId={calibration._id}
-              onClose={() => setIsRT60ModalOpen(false)}
-              onComplete={handleRT60Complete}
-            />
-          )}
-        </>
+        <RT60StudyModal
+          isOpen={isRT60ModalOpen}
+          roomId={roomId}
+          roomName={room.name}
+          calibrationId={systemCalibration.calibrated ? "system" : ""}
+          onClose={() => setIsRT60ModalOpen(false)}
+          onComplete={handleRT60Complete}
+        />
       )}
     </div>
   );

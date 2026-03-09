@@ -2,7 +2,7 @@ import http from "http";
 import express from "express";
 import cors from "cors";
 import { Server } from "socket.io";
-import { connectDB, SoundDataModel, RoomModel } from "./db";
+import { connectDB, SoundDataModel, RoomModel, SystemCalibrationModel } from "./db";
 import { SoundDataRaw } from "./types";
 import { verifyAccessToken } from "./utils/jwt";
 import { CalibrationService } from "./services/calibrationService";
@@ -16,7 +16,7 @@ import studyRoutes from "./routes/studies";
 
 const PORT = Number(process.env.PORT) || 1100;
 
-// Crear aplicación Express
+// Crear aplicacion Express
 const app = express();
 
 // Middleware
@@ -33,6 +33,29 @@ app.use("/api/auth", authRoutes);
 app.use("/api/rooms", roomRoutes);
 app.use("/api/calibrations", calibrationRoutes);
 app.use("/api/studies", studyRoutes);
+
+// Endpoint para obtener calibracion global del sistema
+app.get("/api/system-calibration", async (_, res) => {
+  try {
+    const cal = await SystemCalibrationModel.findOne({ isActive: true })
+      .sort({ calibratedAt: -1 })
+      .lean();
+    if (!cal) {
+      res.json({ calibrated: false });
+      return;
+    }
+    res.json({
+      calibrated: true,
+      vrmsAt60dB: cal.vrmsAt60dB,
+      samplesCount: cal.samplesCount,
+      stdDeviation: cal.stdDeviation,
+      calibratedAt: cal.calibratedAt,
+    });
+  } catch (error) {
+    console.error("[SERVER] Error fetching system calibration:", error);
+    res.status(500).json({ error: "Database error" });
+  }
+});
 
 // Crear servidor HTTP
 const httpServer = http.createServer(app);
@@ -77,27 +100,44 @@ function parseTabData(raw: string): SoundDataRaw | null {
 io.on("connection", (socket) => {
   console.log(`[WS] Client connected: ${socket.id}`);
 
-  // Autenticación del usuario via socket
-  socket.on("user:authenticate", (token: string) => {
-    const payload = verifyAccessToken(token);
-    if (payload) {
-      socketUsers.set(socket.id, payload.userId);
-      socket.emit("user:authenticated", { userId: payload.userId });
-      console.log(`[WS] User ${payload.userId} authenticated on socket ${socket.id}`);
-    } else {
-      socket.emit("user:auth-failed", { error: "Invalid token" });
+  // Autenticacion del usuario via socket (solo para features que requieren usuario)
+  // Acepta JWT string directo o { token }
+  socket.on("user:authenticate", (payload: string | { token?: string }) => {
+    let token: string | undefined;
+    if (typeof payload === "string") {
+      token = payload;
+    } else if (typeof payload === "object" && payload !== null) {
+      token = payload.token;
     }
+
+    if (token) {
+      const decoded = verifyAccessToken(token);
+      if (decoded) {
+        socketUsers.set(socket.id, decoded.userId);
+        socket.emit("user:authenticated", { userId: decoded.userId });
+        console.log(`[WS] User ${decoded.userId} authenticated on socket ${socket.id}`);
+        return;
+      }
+    }
+
+    socket.emit("user:auth-failed", { error: "Invalid token" });
   });
 
-  // Seleccionar habitación activa
-  socket.on("room:select", async (roomId: string) => {
+  // Seleccionar habitacion activa — requiere autenticacion
+  socket.on("room:select", async (data: string | { roomId: string }) => {
+    const roomId = typeof data === "string" ? data : data?.roomId;
     const userId = socketUsers.get(socket.id);
+
     if (!userId) {
       socket.emit("room:select-failed", { error: "Not authenticated" });
       return;
     }
 
-    // Verificar que la habitación pertenece al usuario
+    if (!roomId) {
+      socket.emit("room:select-failed", { error: "roomId required" });
+      return;
+    }
+
     try {
       const room = await RoomModel.findOne({ _id: roomId, userId });
       if (!room) {
@@ -114,7 +154,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Recibir datos del IoT
+  // Recibir datos del IoT (Arduino) — sin autenticacion requerida
   socket.on("data", async (raw: string) => {
     const parsed = parseTabData(raw);
     if (!parsed) return;
@@ -130,45 +170,26 @@ io.on("connection", (socket) => {
         userId: userId || undefined,
       });
 
-      // Procesar en servicios activos
-      const calibrationSessionId = socketCalibrationSessions.get(socket.id);
-      if (calibrationSessionId) {
+      // Alimentar TODAS las sesiones de calibracion activas (el Arduino y el navegador son sockets distintos)
+      for (const calibrationSessionId of socketCalibrationSessions.values()) {
         calibrationService.addSample(calibrationSessionId, parsed.vrms);
       }
 
-      const rt60SessionId = socketRT60Sessions.get(socket.id);
-      if (rt60SessionId) {
+      // Alimentar TODAS las sesiones RT60 activas
+      for (const rt60SessionId of socketRT60Sessions.values()) {
         rt60Service.processSample(rt60SessionId, parsed.vrms);
       }
 
-      // Calcular dB SPL si hay habitación seleccionada y calibración
-      let calculatedDbSPL: number | null = null;
-      const roomId = socketRooms.get(socket.id);
-      if (roomId && userId) {
-        try {
-          const { CalibrationModel } = await import("./db");
-          const calibration = await CalibrationModel.findOne({
-            roomId,
-            userId,
-            isValid: true,
-          })
-            .sort({ calibratedAt: -1 })
-            .lean();
+      // Calcular dB SPL con calibracion global del sistema
+      const vrmsAt60dB = calibrationService.getActiveVrmsAt60dB();
+      const dbSPL = vrmsAt60dB !== null
+        ? CalibrationService.calculateDbSPL(parsed.vrms, vrmsAt60dB)
+        : null;
 
-          if (calibration) {
-            calculatedDbSPL = CalibrationService.calculateDbSPL(parsed.vrms, calibration.vrmsAt60dB);
-          }
-        } catch (error) {
-          // Silenciosamente continuar si no hay calibración
-        }
-      }
-
-      // Re-emitir a todos los clientes conectados
+      // Emitir a todos los clientes: solo vrms y dbSPL calculado
       io.emit("data:new", {
         vrms: parsed.vrms,
-        db_rel: parsed.db_rel,
-        db_spl: parsed.db_spl,
-        dbSPL: calculatedDbSPL,
+        dbSPL,
         timestamp: doc.timestamp,
       });
     } catch (error) {
@@ -176,7 +197,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Endpoint para obtener historial
+  // Historial reciente
   socket.on("data:history", async (limit: number = 100) => {
     try {
       const records = await SoundDataModel.find()
@@ -184,22 +205,27 @@ io.on("connection", (socket) => {
         .limit(limit)
         .lean();
 
-      socket.emit("data:history", records.reverse());
+      const vrmsAt60dB = calibrationService.getActiveVrmsAt60dB();
+
+      const mapped = records.reverse().map((r) => ({
+        vrms: r.vrms,
+        dbSPL: vrmsAt60dB !== null
+          ? CalibrationService.calculateDbSPL(r.vrms, vrmsAt60dB)
+          : null,
+        timestamp: r.timestamp,
+      }));
+
+      socket.emit("data:history", mapped);
     } catch (error) {
       console.error("[DB] Error fetching history:", error);
     }
   });
 
-  // --- Eventos de calibración ---
-  socket.on("calibration:start", (roomId: string) => {
-    const userId = socketUsers.get(socket.id);
-    if (!userId) {
-      socket.emit("calibration:failed", { error: "Not authenticated" });
-      return;
-    }
-
-    const sessionId = calibrationService.startCalibration(socket, roomId, userId);
+  // --- Calibracion global del sistema (no requiere autenticacion) ---
+  socket.on("calibration:start", () => {
+    const sessionId = calibrationService.startCalibration(socket);
     socketCalibrationSessions.set(socket.id, sessionId);
+    console.log(`[WS] Global calibration started by socket ${socket.id}`);
   });
 
   socket.on("calibration:cancel", () => {
@@ -210,7 +236,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- Eventos de estudio RT60 ---
+  // --- Eventos de estudio RT60 (requiere autenticacion) ---
   socket.on("study:start", async (data: { roomId: string; name: string; notes?: string }) => {
     const userId = socketUsers.get(socket.id);
     if (!userId) {
@@ -239,11 +265,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Desconexión
+  // Desconexion
   socket.on("disconnect", () => {
     console.log(`[WS] Client disconnected: ${socket.id}`);
 
-    // Limpiar sesiones activas
     const calibrationSessionId = socketCalibrationSessions.get(socket.id);
     if (calibrationSessionId) {
       calibrationService.cancelCalibration(calibrationSessionId);
@@ -254,7 +279,6 @@ io.on("connection", (socket) => {
       rt60Service.cancelStudy(rt60SessionId);
     }
 
-    // Limpiar maps
     socketUsers.delete(socket.id);
     socketRooms.delete(socket.id);
     socketCalibrationSessions.delete(socket.id);

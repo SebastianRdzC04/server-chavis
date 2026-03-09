@@ -1,5 +1,5 @@
 import { Server as SocketServer, Socket } from "socket.io";
-import { StudyModel, CalibrationModel } from "../db";
+import { StudyModel } from "../db";
 import { CalibrationService } from "./calibrationService";
 
 interface RT60Session {
@@ -54,16 +54,12 @@ export class RT60Service {
     notes?: string
   ): Promise<string | null> {
     try {
-      // Obtener la calibración más reciente de la habitación
-      const calibration = await CalibrationModel.findOne({
-        roomId,
-        isValid: true,
-      })
-        .sort({ calibratedAt: -1 })
-        .lean();
+      // Usar la calibracion global del sistema en memoria
+      const vrmsAt60dB = CalibrationService.getStaticActiveVrmsAt60dB();
+      const calibrationId = CalibrationService.getActiveCalibrationId();
 
-      if (!calibration) {
-        socket.emit("study:failed", { error: "No valid calibration found for this room" });
+      if (vrmsAt60dB === null || calibrationId === null) {
+        socket.emit("study:failed", { error: "No hay calibración del sistema activa" });
         return null;
       }
 
@@ -71,7 +67,7 @@ export class RT60Service {
       const study = await StudyModel.create({
         roomId,
         userId,
-        calibrationId: calibration._id,
+        calibrationId,
         name: studyName,
         notes: notes || undefined,
         status: "recording",
@@ -84,8 +80,8 @@ export class RT60Service {
         studyId: study._id.toString(),
         roomId,
         userId,
-        calibrationId: calibration._id.toString(),
-        vrmsAt60dB: calibration.vrmsAt60dB,
+        calibrationId: calibrationId,
+        vrmsAt60dB: vrmsAt60dB,
         state: "waiting_peak",
         baselineBuffer: [],
         baselineMean: 0,
@@ -144,12 +140,14 @@ export class RT60Service {
       if (vrms > threshold) {
         this.handlePeakDetected(session, vrms);
       } else {
-        // Emitir estado actual
+        // Emitir estado actual (fase "waiting")
         const currentDbSPL = CalibrationService.calculateDbSPL(vrms, session.vrmsAt60dB);
-        this.io.emit("study:waiting", {
+        this.io.emit("study:progress", {
           sessionId: session.sessionId,
           studyId: session.studyId,
-          currentDbSPL: currentDbSPL.toFixed(1),
+          phase: "waiting",
+          currentVrms: vrms,
+          currentDbSPL,
         });
       }
     }
@@ -202,9 +200,11 @@ export class RT60Service {
     this.io.emit("study:progress", {
       sessionId: session.sessionId,
       studyId: session.studyId,
-      currentDbSPL: currentDbSPL.toFixed(1),
-      dbDropped: dbDropped.toFixed(1),
-      elapsedTime: elapsedTime.toFixed(1),
+      phase: "measuring",
+      currentVrms: vrms,
+      currentDbSPL,
+      dbDropped: dbDropped,
+      elapsedTime: elapsedTime,
     });
 
     // Verificar si hemos alcanzado el target
@@ -246,9 +246,11 @@ export class RT60Service {
       this.io.emit("study:complete", {
         sessionId: session.sessionId,
         studyId: session.studyId,
-        rt60Time: rt60Time.toFixed(2),
-        peakDbSPL: session.peakDbSPL.toFixed(1),
-        endDbSPL: endDbSPL.toFixed(1),
+        rt60Time,
+        peakVrms: session.peakVrms,
+        peakDbSPL: session.peakDbSPL,
+        endVrms,
+        endDbSPL,
       });
 
       console.log(

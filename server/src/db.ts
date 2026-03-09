@@ -26,6 +26,7 @@ export { UserModel } from "./models/UserModel";
 export { RoomModel } from "./models/RoomModel";
 export { CalibrationModel } from "./models/CalibrationModel";
 export { StudyModel } from "./models/StudyModel";
+export { SystemCalibrationModel } from "./models/SystemCalibrationModel";
 
 export async function connectDB(): Promise<void> {
   try {

@@ -4,8 +4,6 @@ import type { CalibrationProgress, CalibrationComplete, CalibrationFailed } from
 
 interface Props {
   isOpen: boolean;
-  roomId: string;
-  roomName: string;
   onClose: () => void;
   onComplete: () => void;
 }
@@ -20,7 +18,8 @@ interface CalibrationResult {
   isValid: boolean;
 }
 
-function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Props) {
+// Calibracion global del sistema — no requiere roomId ni autenticacion
+function CalibrationModal({ isOpen, onClose, onComplete }: Props) {
   const socket = useSocket();
   const [step, setStep] = useState<CalibrationStep>("instructions");
   const [progress, setProgress] = useState(0);
@@ -31,7 +30,6 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
 
   useEffect(() => {
     if (!isOpen) {
-      // Reset state cuando se cierra el modal
       setStep("instructions");
       setProgress(0);
       setSamplesCount(0);
@@ -41,14 +39,13 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
     }
   }, [isOpen]);
 
-  // Configurar listeners de Socket.IO
   useEffect(() => {
     if (!isOpen) return;
 
     function handleProgress(data: CalibrationProgress) {
       setSamplesCount(data.samplesCount);
       setCurrentVrms(data.currentVrms);
-      setProgress(data.progress);
+      setProgress(Math.round(data.progress));
     }
 
     function handleComplete(data: CalibrationComplete) {
@@ -90,7 +87,8 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
   function handleStartCapture() {
     setStep("capturing");
     setError(null);
-    socket.startCalibration(roomId);
+    // Calibracion global — sin roomId
+    socket.startCalibration();
   }
 
   function handleCancelCapture() {
@@ -146,46 +144,34 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
         {/* Header */}
         <div style={{ marginBottom: "24px" }}>
           <h2 style={{ fontSize: "24px", fontWeight: 600, marginBottom: "8px" }}>
-            Calibración de Sala
+            Calibración del Sistema
           </h2>
           <p style={{ fontSize: "14px", color: "var(--text-muted)" }}>
-            {roomName}
+            Calibración global del micrófono — aplica a todo el sistema
           </p>
         </div>
 
         {/* Step Indicators */}
         <div style={{ display: "flex", gap: "8px", marginBottom: "32px" }}>
-          <div
-            style={{
-              flex: 1,
-              height: "4px",
-              borderRadius: "2px",
-              background: step === "instructions" || step === "capturing" || step === "result"
-                ? "var(--accent-blue)"
-                : "var(--border)",
-            }}
-          />
-          <div
-            style={{
-              flex: 1,
-              height: "4px",
-              borderRadius: "2px",
-              background: step === "capturing" || step === "result"
-                ? "var(--accent-blue)"
-                : "var(--border)",
-            }}
-          />
-          <div
-            style={{
-              flex: 1,
-              height: "4px",
-              borderRadius: "2px",
-              background: step === "result" ? "var(--accent-blue)" : "var(--border)",
-            }}
-          />
+          {(["instructions", "capturing", "result"] as CalibrationStep[]).map((s, i) => (
+            <div
+              key={s}
+              style={{
+                flex: 1,
+                height: "4px",
+                borderRadius: "2px",
+                background:
+                  (step === "instructions" && i === 0) ||
+                  (step === "capturing" && i <= 1) ||
+                  step === "result"
+                    ? "var(--accent-blue)"
+                    : "var(--border)",
+              }}
+            />
+          ))}
         </div>
 
-        {/* Content */}
+        {/* Step: Instrucciones */}
         {step === "instructions" && (
           <div>
             <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px" }}>
@@ -197,23 +183,23 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
                 background: "var(--bg)",
                 border: "1px solid var(--border)",
                 borderRadius: "8px",
-                marginBottom: "24px",
+                marginBottom: "20px",
               }}
             >
-              <ol style={{ marginLeft: "20px", lineHeight: 1.8, color: "var(--text)" }}>
-                <li style={{ marginBottom: "12px" }}>
-                  Prepara una fuente de sonido constante de <strong>60 dB SPL</strong> 
-                  (puedes usar una app de generador de tonos o un sonómetro de referencia)
+              <ol style={{ marginLeft: "20px", lineHeight: 1.9, color: "var(--text)" }}>
+                <li style={{ marginBottom: "10px" }}>
+                  Prepara una fuente de sonido constante de <strong>60 dB SPL</strong>{" "}
+                  (app de generador de tonos o sonómetro de referencia)
                 </li>
-                <li style={{ marginBottom: "12px" }}>
-                  Coloca el micrófono en la posición donde realizarás las mediciones
+                <li style={{ marginBottom: "10px" }}>
+                  Coloca el micrófono en la posición de medición habitual
                 </li>
-                <li style={{ marginBottom: "12px" }}>
-                  Asegúrate de que el nivel de sonido sea <strong>constante y estable</strong> 
+                <li style={{ marginBottom: "10px" }}>
+                  Asegúrate de que el nivel de sonido sea <strong>constante y estable</strong>{" "}
                   durante 10 segundos
                 </li>
                 <li>
-                  Haz clic en "Iniciar Captura" cuando estés listo
+                  Haz clic en <strong>Iniciar Captura</strong> cuando estés listo
                 </li>
               </ol>
             </div>
@@ -228,8 +214,8 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
               }}
             >
               <p style={{ fontSize: "13px", color: "var(--accent-orange)", margin: 0 }}>
-                <strong>Importante:</strong> La calibración debe realizarse con un nivel constante 
-                de 60 dB SPL. Si la variación es mayor al 5%, la calibración será rechazada.
+                <strong>Importante:</strong> Esta calibración es global y reemplaza cualquier
+                calibración anterior. Si la variación es mayor al 5%, será rechazada.
               </p>
             </div>
 
@@ -268,13 +254,13 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
           </div>
         )}
 
+        {/* Step: Capturando */}
         {step === "capturing" && (
           <div>
             <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "16px" }}>
               Capturando datos...
             </h3>
-            
-            {/* Progress Bar */}
+
             <div
               style={{
                 marginBottom: "24px",
@@ -359,7 +345,7 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
               }}
             >
               <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: 0 }}>
-                Mantenga el nivel de sonido constante durante 10 segundos
+                Mantenga el nivel de 60 dB SPL constante durante 10 segundos
               </p>
             </div>
 
@@ -383,6 +369,7 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
           </div>
         )}
 
+        {/* Step: Resultado */}
         {step === "result" && (
           <div>
             {result && result.isValid ? (
@@ -417,7 +404,7 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
                     Calibración Exitosa
                   </h3>
                   <p style={{ fontSize: "14px", color: "var(--text-muted)" }}>
-                    La sala ha sido calibrada correctamente
+                    El sistema ha sido calibrado correctamente
                   </p>
                 </div>
 
@@ -430,13 +417,7 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
                     marginBottom: "24px",
                   }}
                 >
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "20px",
-                    }}
-                  >
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
                     <div>
                       <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                         Vrms a 60 dB SPL
@@ -449,7 +430,14 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
                       <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                         Desviación estándar
                       </div>
-                      <div style={{ fontSize: "20px", fontWeight: 600, marginTop: "4px", color: "var(--accent-green)" }}>
+                      <div
+                        style={{
+                          fontSize: "20px",
+                          fontWeight: 600,
+                          marginTop: "4px",
+                          color: "var(--accent-green)",
+                        }}
+                      >
                         {(result.stdDeviation * 100).toFixed(2)}%
                       </div>
                     </div>
@@ -527,7 +515,7 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
                   </p>
                 </div>
 
-                {result && (
+                {result && result.stdDeviation > 0 && (
                   <div
                     style={{
                       padding: "20px",
@@ -539,15 +527,22 @@ function CalibrationModal({ isOpen, roomId, roomName, onClose, onComplete }: Pro
                   >
                     <div style={{ marginBottom: "12px" }}>
                       <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                        Desviación estándar detectada
+                        Variación detectada
                       </div>
-                      <div style={{ fontSize: "20px", fontWeight: 600, marginTop: "4px", color: "var(--error)" }}>
+                      <div
+                        style={{
+                          fontSize: "20px",
+                          fontWeight: 600,
+                          marginTop: "4px",
+                          color: "var(--error)",
+                        }}
+                      >
                         {(result.stdDeviation * 100).toFixed(2)}% (máx. 5%)
                       </div>
                     </div>
                     <p style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: 1.6 }}>
-                      El nivel de sonido varió demasiado durante la captura. Asegúrate de mantener 
-                      un nivel constante de 60 dB SPL durante todo el proceso.
+                      El nivel de sonido varió demasiado durante la captura. Asegúrate de
+                      mantener un nivel constante de 60 dB SPL.
                     </p>
                   </div>
                 )}

@@ -59,14 +59,11 @@ function Card({
 }
 
 function SoundMonitor({ current, history }: Props) {
-  // Determinar si hay dB SPL calibrado disponible
-  const hasCalibration = current?.dbSPL !== undefined && current?.dbSPL !== null;
-  
+  const hasCalibration = current?.dbSPL !== null && current?.dbSPL !== undefined;
+
   const chartData = history.map((d) => ({
     time: formatTime(d.timestamp),
     vrms: d.vrms,
-    db_rel: d.db_rel,
-    db_spl: d.db_spl,
     dbSPL: d.dbSPL,
   }));
 
@@ -83,24 +80,33 @@ function SoundMonitor({ current, history }: Props) {
           color="var(--accent-blue)"
         />
         <Card
-          label="dB Relativos"
-          value={current ? current.db_rel.toFixed(1) : "---"}
-          unit="dB rel"
-          color="var(--accent-orange)"
-        />
-        <Card
           label={hasCalibration ? "dB SPL (Calibrado)" : "dB SPL (Sin calibrar)"}
           value={
             current
               ? hasCalibration
                 ? current.dbSPL!.toFixed(1)
-                : current.db_spl.toFixed(1)
+                : "---"
               : "---"
           }
           unit="dB SPL"
           color={hasCalibration ? "var(--accent-green)" : "var(--text-muted)"}
         />
       </div>
+
+      {!hasCalibration && (
+        <div
+          style={{
+            padding: "12px 16px",
+            background: "var(--warning-bg)",
+            border: "1px solid var(--accent-orange)",
+            borderRadius: "8px",
+            fontSize: "13px",
+            color: "var(--accent-orange)",
+          }}
+        >
+          El sistema no está calibrado. Dirígete al inicio para realizar la calibración del sistema.
+        </div>
+      )}
 
       {/* Charts */}
       <div
@@ -151,7 +157,7 @@ function SoundMonitor({ current, history }: Props) {
           </ResponsiveContainer>
         </div>
 
-        {/* Chart dB */}
+        {/* Chart dB SPL */}
         <div
           style={{
             background: "var(--bg-card)",
@@ -161,7 +167,7 @@ function SoundMonitor({ current, history }: Props) {
           }}
         >
           <h3 style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "16px" }}>
-            Niveles de Sonido (dB)
+            dB SPL (Calibrado)
           </h3>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={chartData}>
@@ -182,16 +188,7 @@ function SoundMonitor({ current, history }: Props) {
               />
               <Line
                 type="monotone"
-                dataKey="db_rel"
-                stroke="var(--accent-orange)"
-                strokeWidth={2}
-                dot={false}
-                name="dB Rel"
-                isAnimationActive={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="db_spl"
+                dataKey="dbSPL"
                 stroke="var(--accent-green)"
                 strokeWidth={2}
                 dot={false}
@@ -236,9 +233,6 @@ function SoundMonitor({ current, history }: Props) {
               <th style={{ padding: "8px 12px", color: "var(--accent-blue)", fontWeight: 500 }}>
                 Vrms (V)
               </th>
-              <th style={{ padding: "8px 12px", color: "var(--accent-orange)", fontWeight: 500 }}>
-                dB Rel
-              </th>
               <th style={{ padding: "8px 12px", color: "var(--accent-green)", fontWeight: 500 }}>
                 dB SPL
               </th>
@@ -246,7 +240,7 @@ function SoundMonitor({ current, history }: Props) {
           </thead>
           <tbody>
             {lastRecords.map((d, i) => {
-              const hasDbSPL = d.dbSPL !== undefined && d.dbSPL !== null;
+              const hasSPL = d.dbSPL !== null && d.dbSPL !== undefined;
               return (
                 <tr
                   key={i}
@@ -261,11 +255,14 @@ function SoundMonitor({ current, history }: Props) {
                   <td style={{ padding: "8px 12px", fontFamily: "monospace" }}>
                     {d.vrms.toFixed(6)}
                   </td>
-                  <td style={{ padding: "8px 12px", fontFamily: "monospace" }}>
-                    {d.db_rel.toFixed(1)}
-                  </td>
-                  <td style={{ padding: "8px 12px", fontFamily: "monospace", color: hasDbSPL ? "var(--accent-green)" : "var(--text)" }}>
-                    {hasDbSPL ? d.dbSPL!.toFixed(1) : d.db_spl.toFixed(1)}
+                  <td
+                    style={{
+                      padding: "8px 12px",
+                      fontFamily: "monospace",
+                      color: hasSPL ? "var(--accent-green)" : "var(--text-muted)",
+                    }}
+                  >
+                    {hasSPL ? d.dbSPL!.toFixed(1) : "—"}
                   </td>
                 </tr>
               );
@@ -273,7 +270,7 @@ function SoundMonitor({ current, history }: Props) {
             {lastRecords.length === 0 && (
               <tr>
                 <td
-                  colSpan={4}
+                  colSpan={3}
                   style={{
                     padding: "24px",
                     textAlign: "center",

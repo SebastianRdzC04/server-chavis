@@ -4,7 +4,7 @@ services:
     container_name: chavis-mongo
     restart: unless-stopped
     ports:
-      - "1102:27017"
+      - "3102:27017"
     volumes:
       - mongo_data:/data/db
     environment:
@@ -19,7 +19,7 @@ services:
     container_name: chavis-server
     restart: unless-stopped
     ports:
-      - "1100:1100"
+      - "3100:3100"
     environment:
       - PORT=${PORT:-1100}
       - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017/chavis}
@@ -39,7 +39,7 @@ services:
     container_name: chavis-front
     restart: unless-stopped
     ports:
-      - "1101:80"
+      - "3101:80"
     depends_on:
       - server
     networks:

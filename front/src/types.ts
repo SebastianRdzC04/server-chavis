@@ -1,8 +1,6 @@
 export interface SoundData {
   vrms: number;
-  db_rel: number;
-  db_spl: number;
-  dbSPL?: number | null;
+  dbSPL: number | null;
   timestamp: string;
 }
 

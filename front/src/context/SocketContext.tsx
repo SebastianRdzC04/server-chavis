@@ -52,7 +52,7 @@ interface SocketContextValue {
   connected: boolean;
   authenticate: (userId: string) => void;
   selectRoom: (roomId: string) => void;
-  startCalibration: (roomId: string) => void;
+  startCalibration: () => void;
   cancelCalibration: () => void;
   startRT60Study: (roomId: string, calibrationId: string, name: string, notes?: string) => void;
   cancelRT60Study: () => void;
@@ -93,6 +93,12 @@ export function SocketProvider({ children }: Props) {
     newSocket.on("connect", () => {
       console.log("[Socket] Connected:", newSocket.id);
       setConnected(true);
+      // Autenticar automáticamente al conectar si hay token disponible
+      const token = apiClient.getAccessToken();
+      if (token) {
+        newSocket.emit("user:authenticate", { token });
+        console.log("[Socket] Auto-authenticating with stored token");
+      }
     });
 
     newSocket.on("disconnect", (reason) => {
@@ -120,9 +126,12 @@ export function SocketProvider({ children }: Props) {
     }
   }, [socket, connected]);
 
-  function authenticate(userId: string) {
+  function authenticate(_userId: string) {
     if (!socket) return;
-    socket.emit("user:authenticate", { userId });
+    // Enviar el JWT access token para que el servidor pueda verificar la identidad
+    const token = apiClient.getAccessToken();
+    if (!token) return;
+    socket.emit("user:authenticate", { token });
   }
 
   function selectRoom(roomId: string) {
@@ -130,9 +139,10 @@ export function SocketProvider({ children }: Props) {
     socket.emit("room:select", { roomId });
   }
 
-  function startCalibration(roomId: string) {
+  function startCalibration() {
     if (!socket) return;
-    socket.emit("calibration:start", { roomId });
+    // Calibracion global — sin roomId ni autenticacion
+    socket.emit("calibration:start");
   }
 
   function cancelCalibration() {
